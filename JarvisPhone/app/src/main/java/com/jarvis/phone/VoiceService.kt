@@ -29,12 +29,18 @@ class VoiceService : Service(), TextToSpeech.OnInitListener {
             .setContentText("Say \"Jarvis\" + command").setSmallIcon(android.R.drawable.ic_btn_speak_now).build()
         startForeground(1, n, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         orb = OrbOverlay(this)
+        CommandRouter.onThinking = { h.post { showOrb(15000) } }
         tts = TextToSpeech(this, this)
         h.post { listen() }
     }
 
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
-        i?.getStringExtra("cmd")?.let { showOrb(3000); CommandRouter.run(this, it.lowercase().trim(), ::say) }
+        i?.getStringExtra("say")?.let { say(it) }
+        val img = i?.getStringExtra("image")
+        i?.getStringExtra("cmd")?.let {
+            showOrb(15000)
+            if (img != null) AiBrain.ask(this, it, img, ::say) else CommandRouter.run(this, it.trim(), ::say)
+        }
         return START_STICKY
     }
 

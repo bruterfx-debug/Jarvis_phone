@@ -28,9 +28,14 @@ class MainActivity : Activity() {
         l.addView(box)
         btn("Send") { send() }
 
+        val key = EditText(this).apply { hint = "Paste your free Gemini API key (AIza...)"; setSingleLine() }
+        l.addView(key)
+        btn("Save Gemini key") {
+            if (key.text.isNotBlank()) { AiBrain.saveKey(this, key.text.toString()); key.setText(""); Toast.makeText(this, "Key saved", Toast.LENGTH_SHORT).show() }
+        }
         btn("1. Grant permissions") {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS,
-                Manifest.permission.CALL_PHONE, Manifest.permission.READ_CONTACTS), 1)
+                Manifest.permission.CALL_PHONE, Manifest.permission.READ_CONTACTS, Manifest.permission.CAMERA), 1)
         }
         btn("2. Enable Accessibility service") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         btn("3. Allow display over other apps") {
