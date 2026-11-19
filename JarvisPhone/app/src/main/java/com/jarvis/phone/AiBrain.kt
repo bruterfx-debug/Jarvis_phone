@@ -35,9 +35,10 @@ object AiBrain {
             "Reply with ONLY a JSON object: {\"say\": string, \"action\": string, \"args\": object}. " +
             "action is \"none\" for questions and chat. Use an action only when the user wants the phone to DO something: " +
             "open_app {name}; email {to,subject,body,auto_send}; sms {to,body,auto_send}; whatsapp {to,body,auto_send}; " +
-            "call {to}; play_music {query, app (spotify, youtube music or youtube; optional)}; media {command: play, pause, next or previous}; search {query}; maps {query}; alarm {hour,minute,label}; timer {seconds}; click {text}; type {text}; camera {question}. " +
+            "call {to}; play_music {query, app (spotify, youtube music, amazon music or youtube; optional)}; media {command: play, pause, next or previous}; search {query}; maps {query}; alarm {hour,minute,label}; timer {seconds}; click {text}; type {text}; note {text}; camera {question}. " +
             "'to' may be a contact name or an email/number. For email, write a good subject and a polite complete body from what the user asked. " +
-            "Set auto_send true ONLY if the user explicitly said to send it now; otherwise the draft stays open for them. " +
+            "For sms and whatsapp set auto_send true whenever the user asks you to send, message or text someone, unless they say draft or do not send. For email set auto_send true only if the user says to send it. " +
+            "For writing in the notes app use action note with the exact text to save. " +
             "If the user asks you to look at or identify something in the real world, use action camera with the question. " +
             "If a photo is attached, answer about the photo."
     }

@@ -53,6 +53,7 @@ class MainActivity : Activity() {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
         }
         btn("4. Disable battery optimization") { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+        btn("4b. Allow notification access (music control)") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         btn("5. START listening") {
             ContextCompat.startForegroundService(this, Intent(this, VoiceService::class.java))
             Toast.makeText(this, "Listening for \"Jarvis\"", Toast.LENGTH_SHORT).show()

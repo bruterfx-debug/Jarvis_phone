@@ -8,10 +8,6 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.AlarmClock
 import android.provider.ContactsContract
-import android.provider.MediaStore
-import android.provider.Settings
-import android.view.KeyEvent
-import android.app.SearchManager
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
@@ -44,15 +40,15 @@ object CommandRouter {
             t.startsWith("scroll up") -> a?.scroll(false)
             t.startsWith("click ") || t.startsWith("tap ") || t.startsWith("press ") -> {
                 val target = t.substringAfter(" ").trim()
-                say(if (a?.clickText(target) == true) "Done, sir" else "I could not find $target")
+                say(if (a?.clickAny(listOf(target)) == true) "Done, sir" else "I could not find $target")
             }
-            t in listOf("pause", "pause music", "pause the music", "stop music", "stop the music", "stop playing") -> mediaCommand(c, "pause", say)
-            t in listOf("resume", "resume music", "resume the music", "continue", "continue music", "unpause", "play", "play music", "play the music", "play song") -> mediaCommand(c, "play", say)
-            t.contains("next song") || t.contains("next track") || t == "next" || t == "skip" || t.contains("skip song") -> mediaCommand(c, "next", say)
-            t.contains("previous song") || t.contains("previous track") || t.contains("last song") -> mediaCommand(c, "previous", say)
+            t in listOf("pause", "pause music", "pause the music", "stop music", "stop the music", "stop playing") -> Music.control(c, "pause", say)
+            t in listOf("resume", "resume music", "resume the music", "continue", "continue music", "unpause", "play", "play music", "play the music", "play song") -> Music.control(c, "play", say)
+            t.contains("next song") || t.contains("next track") || t == "next" || t == "skip" || t.contains("skip song") -> Music.control(c, "next", say)
+            t.contains("previous song") || t.contains("previous track") || t.contains("last song") -> Music.control(c, "previous", say)
             t.startsWith("play ") -> {
-                val m = Regex("^play (.+?)(?: on (spotify|youtube music|youtube))?$").find(t)
-                if (m != null) playMusic(c, m.groupValues[1], m.groupValues[2].ifBlank { null }, say, ::st)
+                val m = Regex("^play (.+?)(?: on (spotify|youtube music|youtube|amazon music|amazon|prime music))?$").find(t)
+                if (m != null) Music.play(c, m.groupValues[1], m.groupValues[2].ifBlank { null }, say, ::st)
             }
             t.startsWith("open ") -> openApp(c, t.removePrefix("open ").trim(), say, ::st)
             t.contains("volume up") -> (c.getSystemService(Context.AUDIO_SERVICE) as AudioManager).adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
@@ -70,8 +66,9 @@ object CommandRouter {
     /** Actions chosen by the AI. */
     fun perform(c: Context, action: String, o: JSONObject, say: (String) -> Unit) {
         fun st(i: Intent) = start(c, i, say)
-        fun autoSend() { if (o.optBoolean("auto_send")) main.postDelayed({ JarvisAccessibilityService.instance?.clickText("Send") }, 3000) }
+        fun autoSend() { if (o.optBoolean("auto_send")) JarvisAccessibilityService.instance?.sendWhenReady() }
         val to = o.optString("to")
+        val pm = c.packageManager
         when (action) {
             "open_app" -> openApp(c, o.optString("name").lowercase(), say, ::st)
             "email" -> {
@@ -80,6 +77,7 @@ object CommandRouter {
                     if (to.contains("@")) putExtra(Intent.EXTRA_EMAIL, arrayOf(to))
                     putExtra(Intent.EXTRA_SUBJECT, o.optString("subject"))
                     putExtra(Intent.EXTRA_TEXT, o.optString("body"))
+                    if (pm.getLaunchIntentForPackage("com.google.android.gm") != null) setPackage("com.google.android.gm")
                 }
                 st(i); autoSend()
             }
@@ -88,11 +86,19 @@ object CommandRouter {
                 st(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$num")).putExtra("sms_body", o.optString("body"))); autoSend()
             }
             "whatsapp" -> {
-                val num = (numberFor(c, to) ?: to).filter { it.isDigit() }
+                var num = (numberFor(c, to) ?: to).filter { it.isDigit() }
+                if (num.length == 10 && Locale.getDefault().country == "IN") num = "91$num"
                 if (num.isBlank()) say("I can't find that number, sir.")
-                else { st(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$num?text=" + Uri.encode(o.optString("body"))))); autoSend() }
+                else {
+                    val i = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$num?text=" + Uri.encode(o.optString("body"))))
+                    listOf("com.whatsapp", "com.whatsapp.w4b").firstOrNull { pm.getLaunchIntentForPackage(it) != null }?.let { i.setPackage(it) }
+                    st(i); autoSend()
+                }
             }
             "call" -> call(c, to, say, ::st)
+            "play_music" -> Music.play(c, o.optString("query"), o.optString("app").lowercase().ifBlank { null }, say, ::st)
+            "media" -> Music.control(c, o.optString("command"), say)
+            "note" -> writeNote(c, o.optString("text"), say, ::st)
             "search" -> st(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode(o.optString("query")))))
             "maps" -> st(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(o.optString("query")))))
             "alarm" -> st(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, o.optInt("hour"))
@@ -100,39 +106,31 @@ object CommandRouter {
                 .putExtra(AlarmClock.EXTRA_SKIP_UI, true))
             "timer" -> st(Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, o.optInt("seconds"))
                 .putExtra(AlarmClock.EXTRA_SKIP_UI, true))
-            "click" -> JarvisAccessibilityService.instance?.clickText(o.optString("text"))
-            "type" -> JarvisAccessibilityService.instance?.typeText(o.optString("text"))
-            "play_music" -> playMusic(c, o.optString("query"), o.optString("app").lowercase().ifBlank { null }, say, ::st)
-            "media" -> mediaCommand(c, o.optString("command"), say)
+            "click" -> JarvisAccessibilityService.instance?.clickAny(listOf(o.optString("text")))
+            "type" -> JarvisAccessibilityService.instance?.fillText(o.optString("text"))
             "camera" -> st(Intent(c, CameraActivity::class.java).putExtra("q", o.optString("question", "What is this?")))
         }
     }
 
-    private fun mediaCommand(c: Context, cmd: String, say: (String) -> Unit) {
-        val code = when (cmd) {
-            "pause" -> KeyEvent.KEYCODE_MEDIA_PAUSE
-            "next" -> KeyEvent.KEYCODE_MEDIA_NEXT
-            "previous" -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
-            else -> KeyEvent.KEYCODE_MEDIA_PLAY
+    /** Writes text into the notes app (Samsung Notes, Keep, OneNote...). */
+    private fun writeNote(c: Context, text: String, say: (String) -> Unit, st: (Intent) -> Unit) {
+        val pm = c.packageManager
+        val pkg = listOf("com.samsung.android.app.notes", "com.google.android.keep", "com.microsoft.office.onenote", "com.samsung.android.app.memo")
+            .firstOrNull { pm.getLaunchIntentForPackage(it) != null }
+        if (pkg == null) { say("I can't find a notes app, sir."); return }
+        say("Writing that in your notes, sir")
+        val a = JarvisAccessibilityService.instance
+        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text).setPackage(pkg)
+        if (send.resolveActivity(pm) != null) {
+            st(send)    // the notes app opens a new note with the text already in it
+            main.postDelayed({ a?.clickAny(listOf("save", "done")) }, 2500)
+            main.postDelayed({ a?.clickAny(listOf("save", "done")) }, 4500)
+        } else {
+            st(pm.getLaunchIntentForPackage(pkg)!!)
+            main.postDelayed({ a?.clickAny(listOf("create note", "new note", "add note", "create", "new", "add", "write")) }, 3000)
+            main.postDelayed({ a?.fillText(text) }, 4500)
+            main.postDelayed({ a?.clickAny(listOf("save", "done")) }, 6000)
         }
-        val am = c.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
-        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
-        say(when (cmd) { "pause" -> "Paused, sir"; "next" -> "Next track, sir"; "previous" -> "Previous track, sir"; else -> "Playing, sir" })
-    }
-
-    private fun playMusic(c: Context, query: String, app: String?, say: (String) -> Unit, start: (Intent) -> Unit) {
-        say("Playing $query, sir")
-        val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(query)))
-        if (app != null && app.contains("youtube") && !app.contains("music")) { web.setPackage("com.google.android.youtube"); start(web); return }
-        val i = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH)
-            .putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
-            .putExtra(SearchManager.QUERY, query)
-        when {
-            app == "spotify" -> i.setPackage("com.spotify.music")
-            app != null && app.contains("music") -> i.setPackage("com.google.android.apps.youtube.music")
-        }
-        if (i.resolveActivity(c.packageManager) != null) start(i) else start(web)
     }
 
     private fun openApp(c: Context, name: String, say: (String) -> Unit, start: (Intent) -> Unit) {
