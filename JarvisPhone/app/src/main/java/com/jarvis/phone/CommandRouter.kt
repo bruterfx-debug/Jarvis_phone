@@ -52,7 +52,7 @@ object CommandRouter {
         val hit = apps.firstOrNull { it.loadLabel(pm).toString().lowercase() == name }
             ?: apps.firstOrNull { it.loadLabel(pm).toString().lowercase().contains(name) }
         val i = hit?.let { pm.getLaunchIntentForPackage(it.activityInfo.packageName) }
-        if (i != null) { say("Opening $name"); start(i) } else say("I can't find $name")
+        if (i != null) { say("Opening $name, sir"); start(i) } else say("I can't find $name")
     }
 
     private fun call(c: Context, who: String, say: (String) -> Unit, start: (Intent) -> Unit) {
@@ -65,6 +65,6 @@ object CommandRouter {
             }
         } catch (_: Exception) {}
         if (num == null) { say("I can't find $who"); return }
-        say("Calling $who"); start(Intent(Intent.ACTION_CALL, Uri.parse("tel:$num")))
+        say("Calling $who, sir"); start(Intent(Intent.ACTION_CALL, Uri.parse("tel:$num")))
     }
 }

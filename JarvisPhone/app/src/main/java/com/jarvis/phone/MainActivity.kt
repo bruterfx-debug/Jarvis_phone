@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.view.inputmethod.EditorInfo
 import android.widget.*
 import androidx.core.content.ContextCompat
 
@@ -13,10 +14,20 @@ class MainActivity : Activity() {
         super.onCreate(b)
         val l = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(40, 80, 40, 40) }
         fun btn(t: String, f: () -> Unit) = l.addView(Button(this).apply { text = t; setOnClickListener { f() } })
-        l.addView(TextView(this).apply {
-            text = "Jarvis Phone\nSay \"Jarvis, open YouTube\", \"Jarvis, go back\", \"Jarvis, call Mom\"..."
-            textSize = 18f
-        })
+        l.addView(TextView(this).apply { text = "Jarvis Phone"; textSize = 24f })
+
+        // type a command instead of speaking
+        val box = EditText(this).apply { hint = "Type a command, e.g. open youtube"; imeOptions = EditorInfo.IME_ACTION_SEND; setSingleLine() }
+        fun send() {
+            val t = box.text.toString().trim()
+            if (t.isEmpty()) return
+            ContextCompat.startForegroundService(this, Intent(this, VoiceService::class.java).putExtra("cmd", t))
+            box.setText("")
+        }
+        box.setOnEditorActionListener { _, _, _ -> send(); true }
+        l.addView(box)
+        btn("Send") { send() }
+
         btn("1. Grant permissions") {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS,
                 Manifest.permission.CALL_PHONE, Manifest.permission.READ_CONTACTS), 1)
