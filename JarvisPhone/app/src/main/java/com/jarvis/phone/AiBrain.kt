@@ -14,7 +14,6 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 object AiBrain {
-    private const val MODEL = "gemini-2.5-flash"   // free-tier model with image support
     private val history = ArrayList<Pair<String, String>>()
 
     fun key(c: Context): String = c.getSharedPreferences("jarvis", 0).getString("key", "") ?: ""
@@ -34,6 +33,38 @@ object AiBrain {
             "If a photo is attached, answer about the photo."
     }
 
+    private fun prefs(c: Context) = c.getSharedPreferences("jarvis", 0)
+    private const val BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+
+    private fun post(k: String, model: String, body: JSONObject): Pair<Int, String> {
+        val conn = (URL("$BASE/$model:generateContent").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"; doOutput = true; connectTimeout = 15000; readTimeout = 40000
+            setRequestProperty("content-type", "application/json")
+            setRequestProperty("x-goog-api-key", k)
+        }
+        conn.outputStream.use { it.write(body.toString().toByteArray()) }
+        val code = conn.responseCode
+        val resp = (if (code in 200..299) conn.inputStream else conn.errorStream).bufferedReader().readText()
+        return code to resp
+    }
+
+    /** Asks Google which Flash model this key can use (model names change over time). */
+    private fun resolveModel(k: String): String? {
+        val conn = URL("$BASE?pageSize=200").openConnection() as HttpURLConnection
+        conn.setRequestProperty("x-goog-api-key", k)
+        if (conn.responseCode !in 200..299) return null
+        val arr = JSONObject(conn.inputStream.bufferedReader().readText()).getJSONArray("models")
+        val names = ArrayList<String>()
+        for (i in 0 until arr.length()) {
+            val m = arr.getJSONObject(i)
+            val n = m.getString("name").removePrefix("models/")
+            val ok = m.optJSONArray("supportedGenerationMethods")?.toString()?.contains("generateContent") == true
+            val bad = listOf("lite", "image", "tts", "live", "audio", "exp", "thinking", "robotics", "computer").any { n.contains(it) }
+            if (ok && n.contains("flash") && !bad) names.add(n)
+        }
+        return names.filter { !it.contains("preview") }.maxOrNull() ?: names.maxOrNull()
+    }
+
     fun ask(c: Context, q: String, imagePath: String?, say: (String) -> Unit) {
         val k = key(c)
         if (k.isBlank()) { say("Please paste your Gemini key in the app first, sir."); return }
@@ -47,23 +78,25 @@ object AiBrain {
                 if (imagePath != null) parts.put(JSONObject().put("inlineData", JSONObject().put("mimeType", "image/jpeg").put("data", b64(imagePath))))
                 parts.put(JSONObject().put("text", q))
                 contents.put(JSONObject().put("role", "user").put("parts", parts))
-                val body = JSONObject()
-                    .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system()))))
-                    .put("contents", contents)
-                    .put("generationConfig", JSONObject().put("maxOutputTokens", 500).put("responseMimeType", "application/json")
-                        .put("thinkingConfig", JSONObject().put("thinkingBudget", 0)))
-                val conn = (URL("https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent").openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"; doOutput = true; connectTimeout = 15000; readTimeout = 40000
-                    setRequestProperty("content-type", "application/json")
-                    setRequestProperty("x-goog-api-key", k)
+                val sys = JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system())))
+                fun bodyFor(model: String): JSONObject {
+                    val gc = JSONObject().put("maxOutputTokens", 1500).put("responseMimeType", "application/json")
+                    if (model.contains("2.5")) gc.put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+                    return JSONObject().put("systemInstruction", sys).put("contents", contents).put("generationConfig", gc)
                 }
-                conn.outputStream.use { it.write(body.toString().toByteArray()) }
-                val code = conn.responseCode
-                val resp = (if (code in 200..299) conn.inputStream else conn.errorStream).bufferedReader().readText()
+                var model = prefs(c).getString("model", null) ?: "gemini-2.5-flash"
+                var (code, resp) = post(k, model, bodyFor(model))
+                if (code == 404) {   // model name no longer exists -> find a current one and retry
+                    val m = resolveModel(k)
+                    if (m != null) {
+                        model = m; prefs(c).edit().putString("model", m).apply()
+                        val r = post(k, model, bodyFor(model)); code = r.first; resp = r.second
+                    }
+                }
                 if (code !in 200..299) {
                     say(when (code) {
                         429 -> "I've reached the free limit for now, sir. Try again in a minute."
-                        400, 403 -> "My Gemini key was rejected, sir. Please check it."
+                        401, 403 -> "My Gemini key was rejected, sir. Please check it."
                         else -> "The service returned error $code, sir."
                     }); return@Thread
                 }

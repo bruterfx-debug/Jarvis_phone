@@ -50,8 +50,8 @@ object CommandRouter {
                 val cm = c.getSystemService(Context.CAMERA_SERVICE) as CameraManager
                 try { cm.setTorchMode(cm.cameraIdList[0], !t.contains("off")) } catch (_: Exception) { say("Torch unavailable") }
             }
-            t.contains("what time") || t == "time" -> say("It is " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date()) + ", sir")
-            t.contains("what") && t.contains("date") -> say("Today is " + SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(Date()) + ", sir")
+            Regex("(what.?s the time|what time|current time|the time now|time is it|^time$)").containsMatchIn(t) -> say("It is " + SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date()) + ", sir")
+            Regex("(today.?s date|what.?s the date|what date|what day)").containsMatchIn(t) -> say("Today is " + SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(Date()) + ", sir")
             else -> { onThinking?.invoke(); AiBrain.ask(c, raw, null, say) }   // anything else -> AI
         }
     }
