@@ -33,6 +33,17 @@ class MainActivity : Activity() {
         btn("Save Gemini key") {
             if (key.text.isNotBlank()) { AiBrain.saveKey(this, key.text.toString()); key.setText(""); Toast.makeText(this, "Key saved", Toast.LENGTH_SHORT).show() }
         }
+        val gkey = EditText(this).apply { hint = "Free Groq key (gsk_...) - optional, much faster"; setSingleLine() }
+        l.addView(gkey)
+        btn("Save Groq key") {
+            if (gkey.text.isNotBlank()) { AiBrain.saveGroqKey(this, gkey.text.toString()); gkey.setText(""); Toast.makeText(this, "Groq key saved", Toast.LENGTH_SHORT).show() }
+        }
+        val status = TextView(this).apply { textSize = 14f }
+        btn("Test AI (shows the real error)") {
+            status.text = "Testing..."
+            AiBrain.test(this) { msg -> runOnUiThread { status.text = msg } }
+        }
+        l.addView(status)
         btn("1. Grant permissions") {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS,
                 Manifest.permission.CALL_PHONE, Manifest.permission.READ_CONTACTS, Manifest.permission.CAMERA), 1)

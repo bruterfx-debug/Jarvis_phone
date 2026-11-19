@@ -8,7 +8,10 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.AlarmClock
 import android.provider.ContactsContract
+import android.provider.MediaStore
 import android.provider.Settings
+import android.view.KeyEvent
+import android.app.SearchManager
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
@@ -42,6 +45,14 @@ object CommandRouter {
             t.startsWith("click ") || t.startsWith("tap ") || t.startsWith("press ") -> {
                 val target = t.substringAfter(" ").trim()
                 say(if (a?.clickText(target) == true) "Done, sir" else "I could not find $target")
+            }
+            t in listOf("pause", "pause music", "pause the music", "stop music", "stop the music", "stop playing") -> mediaCommand(c, "pause", say)
+            t in listOf("resume", "resume music", "resume the music", "continue", "continue music", "unpause", "play", "play music", "play the music", "play song") -> mediaCommand(c, "play", say)
+            t.contains("next song") || t.contains("next track") || t == "next" || t == "skip" || t.contains("skip song") -> mediaCommand(c, "next", say)
+            t.contains("previous song") || t.contains("previous track") || t.contains("last song") -> mediaCommand(c, "previous", say)
+            t.startsWith("play ") -> {
+                val m = Regex("^play (.+?)(?: on (spotify|youtube music|youtube))?$").find(t)
+                if (m != null) playMusic(c, m.groupValues[1], m.groupValues[2].ifBlank { null }, say, ::st)
             }
             t.startsWith("open ") -> openApp(c, t.removePrefix("open ").trim(), say, ::st)
             t.contains("volume up") -> (c.getSystemService(Context.AUDIO_SERVICE) as AudioManager).adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
@@ -91,8 +102,37 @@ object CommandRouter {
                 .putExtra(AlarmClock.EXTRA_SKIP_UI, true))
             "click" -> JarvisAccessibilityService.instance?.clickText(o.optString("text"))
             "type" -> JarvisAccessibilityService.instance?.typeText(o.optString("text"))
+            "play_music" -> playMusic(c, o.optString("query"), o.optString("app").lowercase().ifBlank { null }, say, ::st)
+            "media" -> mediaCommand(c, o.optString("command"), say)
             "camera" -> st(Intent(c, CameraActivity::class.java).putExtra("q", o.optString("question", "What is this?")))
         }
+    }
+
+    private fun mediaCommand(c: Context, cmd: String, say: (String) -> Unit) {
+        val code = when (cmd) {
+            "pause" -> KeyEvent.KEYCODE_MEDIA_PAUSE
+            "next" -> KeyEvent.KEYCODE_MEDIA_NEXT
+            "previous" -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
+            else -> KeyEvent.KEYCODE_MEDIA_PLAY
+        }
+        val am = c.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
+        am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
+        say(when (cmd) { "pause" -> "Paused, sir"; "next" -> "Next track, sir"; "previous" -> "Previous track, sir"; else -> "Playing, sir" })
+    }
+
+    private fun playMusic(c: Context, query: String, app: String?, say: (String) -> Unit, start: (Intent) -> Unit) {
+        say("Playing $query, sir")
+        val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(query)))
+        if (app != null && app.contains("youtube") && !app.contains("music")) { web.setPackage("com.google.android.youtube"); start(web); return }
+        val i = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH)
+            .putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
+            .putExtra(SearchManager.QUERY, query)
+        when {
+            app == "spotify" -> i.setPackage("com.spotify.music")
+            app != null && app.contains("music") -> i.setPackage("com.google.android.apps.youtube.music")
+        }
+        if (i.resolveActivity(c.packageManager) != null) start(i) else start(web)
     }
 
     private fun openApp(c: Context, name: String, say: (String) -> Unit, start: (Intent) -> Unit) {
